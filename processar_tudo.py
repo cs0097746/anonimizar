@@ -165,22 +165,56 @@ contador = 0
 sucesso = 0
 falhas = 0
 
-arquivos_dicom = [f for f in os.listdir(input_folder) if f.lower().endswith('.dcm')]
+# ============================================================================
+# BUSCA RECURSIVA - Encontra todos os DICOMs em subpastas
+# ============================================================================
+print("🔍 Buscando arquivos DICOM (incluindo subpastas)...\n")
+
+arquivos_dicom = []
+for root, dirs, files in os.walk(input_folder):
+    for filename in files:
+        if filename.lower().endswith('.dcm'):
+            caminho_completo = os.path.join(root, filename)
+            # Calcula caminho relativo para exibir
+            caminho_relativo = os.path.relpath(caminho_completo, input_folder)
+            arquivos_dicom.append({
+                'caminho_completo': caminho_completo,
+                'caminho_relativo': caminho_relativo,
+                'nome_paciente': os.path.basename(root),  # Nome da pasta do paciente
+                'filename': filename
+            })
 
 if not arquivos_dicom:
-    print(f"❌ Nenhum arquivo DICOM encontrado em '{input_folder}/'")
-    print(f"\n💡 Coloque seus arquivos .dcm na pasta '{input_folder}/' e execute novamente!")
+    print(f"❌ Nenhum arquivo DICOM encontrado em '{input_folder}/' (incluindo subpastas)")
+    print(f"\n💡 Estrutura esperada:")
+    print(f"   {input_folder}/")
+    print(f"   ├── paciente_001/")
+    print(f"   │   └── ecg.dcm")
+    print(f"   ├── paciente_002/")
+    print(f"   │   └── ecg.dcm")
+    print(f"   └── ...")
+    print(f"\n   Coloque o ZIP extraído na pasta '{input_folder}/' e execute novamente!")
     exit(1)
 
-print(f"🔍 Encontrados {len(arquivos_dicom)} arquivo(s) DICOM\n")
+print(f"✅ Encontrados {len(arquivos_dicom)} arquivo(s) DICOM em subpastas!\n")
 
-for filename in arquivos_dicom:
+# Mostra preview das pastas encontradas
+pastas_unicas = set(info['nome_paciente'] for info in arquivos_dicom)
+print(f"📂 Pastas de pacientes encontradas: {len(pastas_unicas)}")
+for i, pasta in enumerate(sorted(pastas_unicas)[:5], 1):
+    print(f"   {i}. {pasta}")
+if len(pastas_unicas) > 5:
+    print(f"   ... e mais {len(pastas_unicas) - 5} pastas")
+print()
+
+for info in arquivos_dicom:
     contador += 1
     print(f"{'='*80}")
-    print(f"[{contador}/{len(arquivos_dicom)}] {filename}")
+    print(f"[{contador}/{len(arquivos_dicom)}] {info['caminho_relativo']}")
     print(f"{'='*80}")
     
-    caminho_arquivo = os.path.join(input_folder, filename)
+    caminho_arquivo = info['caminho_completo']
+    filename = info['filename']
     
     try:
         # 1. LÊ DICOM
@@ -189,18 +223,12 @@ for filename in arquivos_dicom:
         print(f"     ✓ ID: {ds.get('PatientID', 'N/A')}")
         print(f"     ✓ Nome: {ds.get('PatientName', 'N/A')}")
         
-        # 2. ANONIMIZA METADADOS
-        print(f"\n  🔒 Anonimizando metadados...")
+        # 2. ANONIMIZA METADADOS (apenas para ter ID único)
+        print(f"\n  🔒 Gerando ID anonimizado...")
         ds = anonimizar_metadados(ds, contador)
         print(f"     ✓ Novo ID: {ds.PatientID}")
-        print(f"     ✓ Novo Nome: {ds.PatientName}")
         
-        # 3. SALVA DICOM ANONIMIZADO
-        nome_dcm = f"anonimizado_{contador:04d}.dcm"
-        ds.save_as(os.path.join(output_folder, nome_dcm))
-        print(f"     ✓ DICOM salvo: {nome_dcm}")
-        
-        # 4. EXTRAI PDF
+        # 3. EXTRAI PDF
         print(f"\n  📄 Extraindo PDF embutido...")
         if not hasattr(ds, 'EncapsulatedDocument'):
             print(f"     ❌ Este DICOM não tem PDF embutido")
@@ -210,7 +238,7 @@ for filename in arquivos_dicom:
         pdf_data = ds.EncapsulatedDocument
         print(f"     ✓ PDF extraído ({len(pdf_data):,} bytes)")
         
-        # 5. CONVERTE PDF PARA IMAGEM
+        # 4. CONVERTE PDF PARA IMAGEM
         print(f"\n  🖼️  Convertendo PDF para PNG...")
         
         img = None
@@ -235,13 +263,13 @@ for filename in arquivos_dicom:
         
         print(f"     ✓ Imagem: {img.size[0]} x {img.size[1]} pixels")
         
-        # 6. ANONIMIZA IMAGEM
+        # 5. ANONIMIZA IMAGEM
         print(f"\n  🔐 Anonimizando região com dados sensíveis...")
         img_anon, larg_oc, alt_oc = anonimizar_imagem(img)
         print(f"     ✓ Região ocultada: {larg_oc} x {alt_oc} px")
         print(f"     ✓ Percentual: 20% largura x 25% altura")
         
-        # 7. SALVA PNG ANONIMIZADO
+        # 6. SALVA PNG ANONIMIZADO
         nome_png = f"anonimizado_{contador:04d}.png"
         caminho_png = os.path.join(output_folder, nome_png)
         img_anon.save(caminho_png, quality=95, optimize=True)
@@ -273,8 +301,7 @@ if sucesso > 0:
     print(f"   📁 {sucesso} arquivo(s) anonimizado(s) com sucesso!")
     print(f"   📂 Localização: {os.path.abspath(output_folder)}/")
     print(f"\n   Arquivos gerados:")
-    print(f"   • anonimizado_XXXX.dcm - DICOM com metadados anonimizados")
-    print(f"   • anonimizado_XXXX.png - Imagem PNG anonimizada")
+    print(f"   • anonimizado_XXXX.png - Imagens PNG anonimizadas (prontas para uso)")
 
 if falhas > 0:
     print(f"\n⚠️  ATENÇÃO: {falhas} arquivo(s) com falha")
